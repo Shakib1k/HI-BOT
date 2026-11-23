@@ -44,6 +44,41 @@ def save_ub(data):
 
 ACTIVE_CLIENTS = {}
 
+# Callback supplied by main.py for direct channel-post quota enforcement.
+CHANNEL_POST_CALLBACK = None
+_MONITORED_CLIENTS = set()
+
+
+def set_channel_post_callback(callback):
+    global CHANNEL_POST_CALLBACK
+    CHANNEL_POST_CALLBACK = callback
+    for info in list(ACTIVE_CLIENTS.values()):
+        client = info.get("client")
+        if client:
+            _attach_channel_post_monitor(client)
+
+
+def _attach_channel_post_monitor(client):
+    """Observe ordinary broadcast-channel posts and pass the real sender ID to main."""
+    marker = id(client)
+    if marker in _MONITORED_CLIENTS:
+        return
+    _MONITORED_CLIENTS.add(marker)
+
+    @client.on(events.NewMessage)
+    async def managed_channel_post_observer(event):
+        try:
+            if CHANNEL_POST_CALLBACK is None or not event.is_channel or event.is_group:
+                return
+            sender_id = event.sender_id
+            channel_id = event.chat_id
+            if not sender_id or not channel_id:
+                # Anonymous admins / send-as-channel do not expose a human sender.
+                return
+            await asyncio.to_thread(CHANNEL_POST_CALLBACK, channel_id, sender_id, event.message)
+        except Exception as exc:
+            logger.exception("Managed channel post observer failed: %s", exc)
+
 def cleanup_old_sessions():
     for file in os.listdir("."):
         if file.startswith("session_") and file.endswith(".session"):
@@ -154,6 +189,7 @@ async def _finish_login(phone: str):
     info = ACTIVE_CLIENTS[phone]
     client = info["client"]
     info["logged_in"] = True
+    _attach_channel_post_monitor(client)
     keys = info["api_keys"]
     my_id = info["user_id"]
 
@@ -250,6 +286,7 @@ async def restore_sessions():
                 "session_file": session_file
             }
             OWNER_ACTIVE[phone] = False # রিস্টার্টে ডিফল্ট অফলাইন
+            _attach_channel_post_monitor(client)
 
             @client.on(events.UserUpdate)
             async def user_status_update(event, ph=phone, uid=my_id):

@@ -699,10 +699,8 @@ def register(app, ctx):
             if not getattr(bot_member, "can_promote_members", False):
                 return err("The bot needs 'Add New Admins / Promote Members' permission in this channel")
             effective_rights = dict(rights)
-            # Managed admins publish through the bot gateway; direct channel posting/editing
-            # is disabled so quotas cannot be bypassed by posting directly in Telegram.
-            effective_rights["can_post_messages"] = False
-            effective_rights["can_edit_messages"] = False
+            # Preserve the exact rights selected in the panel. Direct channel
+            # posts are attributed by the authenticated Telethon observer where possible.
             bot.promote_chat_member(ch["chat_id"], uid, **effective_rights)
         except Exception as ex:
             return err("Telegram could not promote this user. Check bot rights and the User ID: " + str(ex))
@@ -717,7 +715,7 @@ def register(app, ctx):
         _managed_admins().setdefault(str(ch["chat_id"]), {})[str(uid)] = policy
         sync()
         try:
-            bot.send_message(uid, "✅ You have been added as a managed channel admin.\nTo publish with your personal upload limits, open this bot and send /publish. Choose the channel and send one post. Direct channel posting/editing is disabled so the limits cannot be bypassed. Use /cancel to stop.")
+            bot.send_message(uid, "✅ You have been added as a managed channel admin.\nYour channel permissions and personal upload policy are active. Posts made directly in the channel are monitored when the owner's Telegram observer session can identify the posting account. Anonymous / send-as-channel posts cannot be attributed reliably.")
         except Exception:
             pass
         try:
@@ -739,8 +737,9 @@ def register(app, ctx):
             rights = {k: bool(rights_in.get(k, False)) for k in ADMIN_RIGHTS}
             try:
                 effective_rights = dict(rights)
-                effective_rights["can_post_messages"] = False
-                effective_rights["can_edit_messages"] = False
+                # Do not accidentally lift an active cooldown while editing policy.
+                if float(old.get("suspended_until", 0) or 0) > time.time():
+                    effective_rights = {k: False for k in effective_rights}
                 bot.promote_chat_member(ch["chat_id"], uid, **effective_rights)
             except Exception as ex: return err("Could not update Telegram permissions: " + str(ex))
             old["permissions"] = rights

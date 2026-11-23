@@ -9,7 +9,7 @@
 4. Environment Variables (Add Environment Variable):
    - BOT_TOKEN = tumhara bot token
    - ADMIN_PASSWORD = admin panel ka password
-   - (optional) TELEGRAM_API_ID, TELEGRAM_API_HASH = userbot ke liye
+   - TELEGRAM_API_ID, TELEGRAM_API_HASH = required for direct channel-admin post attribution / monitoring (Telethon user session)
 5. Create Web Service dabao. Deploy hone ke baad:
    https://dca-0752.onrender.com  (seedha admin panel khulega)
    khol ke ADMIN_PASSWORD se login karo.
@@ -81,14 +81,17 @@ work than the rest and I didn't want to rush them.
 
 ### Telegram API limitations to understand
 - Telegram Bot API cannot enumerate every channel where a bot is an administrator. This manager verifies channels already saved in this panel; add a channel under Join first.
-- Channel post updates do not reliably identify the human admin who published a post (anonymous admins and `sender_chat` are common). Therefore the stored per-admin quotas, cooldown and auto-delete-links preference are configuration records only; this release does **not** automatically count or block each human admin's direct channel uploads, delete only that admin's links, or restore rights after a timer. Do not rely on those policy fields as enforcement until an attributable, bot-mediated upload workflow is implemented.
+- The Bot API alone cannot reliably identify the human author of direct channel posts. This update uses the authenticated Telethon observer session for sender attribution where Telegram exposes a real sender ID. Anonymous / send-as-channel posts remain unidentifiable.
 
+## Direct Channel Admin quota enforcement (updated)
+- Managed admins keep the channel permissions selected by the owner and publish directly in Telegram. The bot does not require `/publish` and does not route uploads through the bot chat.
+- Direct channel-post attribution uses the existing Telethon userbot session. Configure `TELEGRAM_API_ID` and `TELEGRAM_API_HASH`, then log in an account that can view the managed channels and keep its session connected on Render.
+- Telethon supplies the sender's numeric Telegram user ID for ordinary, non-anonymous channel posts. The observer matches that ID and the channel ID against Channel Admin Manager records, then counts exactly one category: Files, Photos, Videos, Voice, or Text.
+- A positive quota allows posts up to the configured count. Further posts of that category are deleted and all rights recorded by this manager are temporarily revoked for the configured cooldown. When all enabled positive quotas have been used, all managed rights are suspended immediately.
+- A quota of `0` blocks that content type. The post is deleted and an English warning is sent; after three blocked attempts, all managed rights are temporarily revoked. Auto-delete links is also enforced for attributable posts.
+- Cooldown recovery is persisted and checked after restarts. The exact saved permissions are restored after the cooldown, subject to Telegram accepting the rights.
 
-## Managed Channel Admin upload enforcement (new)
-- Admins added through Channel Admin Manager must use the bot privately: send `/publish`, choose a managed channel, then send one text/photo/video/voice/file.
-- The bot publishes the content to the selected channel and counts usage against that admin's saved policy. `0` blocks that content type.
-- Media also counts toward the general Files quota and its matching subtype quota (photo/video/voice). Text counts toward Text Messages.
-- When every configured non-zero quota is exhausted, all rights recorded for that managed admin are temporarily revoked for the configured cooldown. After cooldown, the saved rights are restored and the exhausted quota counters reset.
-- Three rejected attempts also trigger a temporary suspension. Link auto-blocking is enforced on content sent through `/publish`.
-- To prevent bypass, managed admins' direct `can_post_messages` and `can_edit_messages` rights are withheld; posts are sent by the bot gateway. The bot must itself have permission to post in the target channel.
-- Direct posts made outside `/publish` cannot be reliably attributed to a human admin by Telegram Bot API, so the gateway is required for reliable per-user enforcement.
+### Important Telegram attribution limitation
+- Anonymous admins and posts sent as the channel do not expose the human admin's numeric sender ID. Those posts cannot be reliably assigned to a particular admin and therefore cannot be safely counted against an individual policy. Use a non-anonymous admin identity for per-admin enforcement.
+- The Telethon observer must be logged into an account that can view each channel. A bot token alone cannot identify the human author of all direct channel posts. If the observer session is disconnected, direct-post counting pauses until it reconnects.
+- The bot itself still needs `Delete Messages` and `Promote Members / Add New Admins` rights in the channel to delete violating posts and suspend/restore admins.
