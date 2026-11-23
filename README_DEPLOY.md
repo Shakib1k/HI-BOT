@@ -95,3 +95,11 @@ work than the rest and I didn't want to rush them.
 - Anonymous admins and posts sent as the channel do not expose the human admin's numeric sender ID. Those posts cannot be reliably assigned to a particular admin and therefore cannot be safely counted against an individual policy. Use a non-anonymous admin identity for per-admin enforcement.
 - The Telethon observer must be logged into an account that can view each channel. A bot token alone cannot identify the human author of all direct channel posts. If the observer session is disconnected, direct-post counting pauses until it reconnects.
 - The bot itself still needs `Delete Messages` and `Promote Members / Add New Admins` rights in the channel to delete violating posts and suspend/restore admins.
+
+## Fix: per-admin limits not enforced (latest)
+- Root cause: Telegram does not give bots/Telethon the human sender ID of broadcast-channel posts, so every post was silently ignored.
+- Now each post is attributed by (1) real sender ID if present, else (2) the author name that **Sign Messages** adds. **Turn ON "Sign Messages" in the channel** (Channel -> Edit).
+- The Bot API itself now enforces limits too (Telethon observer is optional/extra).
+- Limit exceeded or all enabled limits used -> post deleted, all managed rights removed for the cooldown, auto-restored, counters reset.
+- Channel Admin Manager shows an "Enforcement status" box and per-admin usage/suspension.
+- Bot needs "Delete messages" and "Add new admins" rights in the channel.

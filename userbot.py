@@ -70,11 +70,13 @@ def _attach_channel_post_monitor(client):
         try:
             if CHANNEL_POST_CALLBACK is None or not event.is_channel or event.is_group:
                 return
-            sender_id = event.sender_id
             channel_id = event.chat_id
-            if not sender_id or not channel_id:
-                # Anonymous admins / send-as-channel do not expose a human sender.
+            if not channel_id:
                 return
+            # Broadcast-channel posts usually carry NO human sender ID (None or the
+            # channel's own negative ID). main.py then identifies the admin through
+            # the post's author signature ("Sign messages"), so always forward it.
+            sender_id = event.sender_id
             await asyncio.to_thread(CHANNEL_POST_CALLBACK, channel_id, sender_id, event.message)
         except Exception as exc:
             logger.exception("Managed channel post observer failed: %s", exc)
