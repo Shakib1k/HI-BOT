@@ -615,10 +615,24 @@ def register(app, ctx):
     # ------------------------------------------------------------------
     # Channel Admin Manager (admins created/managed by this bot)
     # ------------------------------------------------------------------
+    # Telegram Bot API channel administrator rights.  Keep this list aligned
+    # with promoteChatMember / ChatAdministratorRights.  In channels,
+    # can_edit_messages also covers pinning; can_pin_messages is group-only.
     ADMIN_RIGHTS = (
-        "can_post_messages", "can_edit_messages", "can_delete_messages",
-        "can_invite_users", "can_restrict_members", "can_pin_messages",
-        "can_promote_members", "can_change_info", "can_manage_video_chats"
+        "is_anonymous",
+        "can_change_info",
+        "can_post_messages",
+        "can_edit_messages",
+        "can_delete_messages",
+        "can_invite_users",
+        "can_restrict_members",
+        "can_promote_members",
+        "can_manage_video_chats",
+        "can_post_stories",
+        "can_edit_stories",
+        "can_delete_stories",
+        "can_manage_direct_messages",
+        "can_send_welcome_messages",
     )
 
     def _managed_admins():
@@ -665,7 +679,7 @@ def register(app, ctx):
             items.append({"id": u.id, "name": ((u.first_name or "") + (" " + u.last_name if u.last_name else "")),
                           "username": u.username, "status": a.status, "is_owner": a.status == "creator",
                           "managed_by_bot": bool(rec), "policy": rec or None})
-        return ok(items=items)
+        return ok(items=items, supported_permissions=list(ADMIN_RIGHTS))
 
     @route("/api/admin/channel-admin/<cid>/admins", methods=["POST"])
     def adm_channel_managed_add(cid):
@@ -734,10 +748,9 @@ def register(app, ctx):
         bucket = _managed_admins().get(str(ch["chat_id"]), {})
         if str(uid) not in bucket: return err("Only admins registered by this bot can be removed here", 404)
         try:
-            bot.promote_chat_member(ch["chat_id"], uid,
-                can_change_info=False, can_post_messages=False, can_edit_messages=False,
-                can_delete_messages=False, can_invite_users=False, can_restrict_members=False,
-                can_pin_messages=False, can_promote_members=False, can_manage_video_chats=False)
+            # Demote by explicitly clearing every channel-admin right supported
+            # by this manager, including newer Story / DM / Welcome permissions.
+            bot.promote_chat_member(ch["chat_id"], uid, **{k: False for k in ADMIN_RIGHTS})
         except Exception as ex:
             return err("Could not remove admin rights: " + str(ex))
         bucket.pop(str(uid), None)

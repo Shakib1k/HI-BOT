@@ -75,9 +75,10 @@ work than the rest and I didn't want to rush them.
 - New dashboard tile: **Channel Admin Manager**.
 - Search & Verify checks the channels already registered under Join / Channels and confirms where the bot is currently an administrator.
 - Open a channel to view its current administrators. Existing admins are shown, but only admins added and recorded through this manager can be edited or removed here.
-- Add New Admin accepts a Telegram numeric User ID, applies the selected Telegram administrator rights, and stores per-admin policy fields (files/photos/videos/voice/text counts, cooldown hours, and auto-delete-links preference).
-- The bot must have **Promote Members / Add New Admins** permission in the channel. Telegram may reject rights that exceed the bot's own rights.
+- Add New Admin accepts a Telegram numeric User ID and applies the channel rights exposed by Telegram: channel info, post/edit/pin/delete messages, invite users, restrict/ban members, add admins, manage live streams/video chats, post/edit/delete stories, manage channel direct messages, manage welcome messages, and anonymous-admin mode.
+- The bot must have **Promote Members / Add New Admins** permission in the channel. Telegram may reject rights that exceed the bot's own rights or are unavailable for that channel.
+- Per-admin policy fields remain available for files/photos/videos/voice/text limits, cooldown hours, and the link-deletion preference.
 
 ### Telegram API limitations to understand
 - Telegram Bot API cannot enumerate every channel where a bot is an administrator. This manager verifies channels already saved in this panel; add a channel under Join first.
-- Channel post updates do not reliably identify the human admin who published a post (anonymous admins and `sender_chat` are common). Therefore the stored per-admin quotas, cooldown and auto-delete-links preference are configuration records only; this release does **not** claim to automatically count or block each human admin's channel uploads or restore rights after a timer. Do not rely on those policy fields as enforcement until an attributable posting workflow is implemented.
+- Channel post updates do not reliably identify the human admin who published a post (anonymous admins and `sender_chat` are common). Therefore the stored per-admin quotas, cooldown and auto-delete-links preference are configuration records only; this release does **not** automatically count or block each human admin's direct channel uploads, delete only that admin's links, or restore rights after a timer. Do not rely on those policy fields as enforcement until an attributable, bot-mediated upload workflow is implemented.
