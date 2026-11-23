@@ -82,3 +82,13 @@ work than the rest and I didn't want to rush them.
 ### Telegram API limitations to understand
 - Telegram Bot API cannot enumerate every channel where a bot is an administrator. This manager verifies channels already saved in this panel; add a channel under Join first.
 - Channel post updates do not reliably identify the human admin who published a post (anonymous admins and `sender_chat` are common). Therefore the stored per-admin quotas, cooldown and auto-delete-links preference are configuration records only; this release does **not** automatically count or block each human admin's direct channel uploads, delete only that admin's links, or restore rights after a timer. Do not rely on those policy fields as enforcement until an attributable, bot-mediated upload workflow is implemented.
+
+
+## Managed Channel Admin upload enforcement (new)
+- Admins added through Channel Admin Manager must use the bot privately: send `/publish`, choose a managed channel, then send one text/photo/video/voice/file.
+- The bot publishes the content to the selected channel and counts usage against that admin's saved policy. `0` blocks that content type.
+- Media also counts toward the general Files quota and its matching subtype quota (photo/video/voice). Text counts toward Text Messages.
+- When every configured non-zero quota is exhausted, all rights recorded for that managed admin are temporarily revoked for the configured cooldown. After cooldown, the saved rights are restored and the exhausted quota counters reset.
+- Three rejected attempts also trigger a temporary suspension. Link auto-blocking is enforced on content sent through `/publish`.
+- To prevent bypass, managed admins' direct `can_post_messages` and `can_edit_messages` rights are withheld; posts are sent by the bot gateway. The bot must itself have permission to post in the target channel.
+- Direct posts made outside `/publish` cannot be reliably attributed to a human admin by Telegram Bot API, so the gateway is required for reliable per-user enforcement.
