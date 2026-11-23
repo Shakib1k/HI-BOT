@@ -693,11 +693,29 @@ def register(app, ctx):
         except Exception:
             pass
         try:
+            diag["events"] = [ev for k, lst in ctx["_channel_events"].items() if ctx["_same_channel"](k, ch["chat_id"]) for ev in lst][-12:]
+        except Exception:
+            diag["events"] = []
+        try:
             ub = ctx.get("ub_module")
             diag["observer_connected"] = bool(ub and any(i.get("logged_in") for i in getattr(ub, "ACTIVE_CLIENTS", {}).values()))
         except Exception:
             diag["observer_connected"] = False
         return ok(items=items, supported_permissions=list(ADMIN_RIGHTS), diagnostics=diag)
+
+    @route("/api/admin/channel-admin/<cid>/enable-signatures", methods=["POST"])
+    def adm_channel_enable_signatures(cid):
+        ch, e = _get_channel_or_404(cid)
+        if e: return e
+        ub = ctx.get("ub_module")
+        if not ub or not hasattr(ub, "enable_signatures"):
+            return err("Telethon userbot is not available")
+        try:
+            r = ctx["run_async"](ub.enable_signatures(ch["chat_id"]))
+        except Exception as ex:
+            return err("Failed: " + str(ex))
+        if not r.get("ok"): return err(r.get("msg", "Failed"))
+        return ok(message=r.get("msg"))
 
     @route("/api/admin/channel-admin/<cid>/admins", methods=["POST"])
     def adm_channel_managed_add(cid):
@@ -724,7 +742,7 @@ def register(app, ctx):
         policy = {
             "permissions": rights,
             "names": [], "name_aliases": [],
-            "limits": {k: max(0, min(int((d.get("limits") or {}).get(k, 0) or 0), 1000000)) for k in ("files", "photos", "videos", "voice", "text")},
+            "limits": {k: max(-1, min(int((d.get("limits") or {}).get(k, 0) or 0), 1000000)) for k in ("files", "photos", "videos", "voice", "text")},
             "cooldown_hours": max(0, min(float(d.get("cooldown_hours", 0) or 0), 8760)),
             "auto_delete_links": bool(d.get("auto_delete_links", False)),
             "usage": {"counts": {k: 0 for k in ("files", "photos", "videos", "voice", "text")}, "warnings": 0},
@@ -769,7 +787,7 @@ def register(app, ctx):
             except Exception as ex: return err("Could not update Telegram permissions: " + str(ex))
             old["permissions"] = rights
         if "limits" in d:
-            old["limits"] = {k: max(0, min(int((d["limits"] or {}).get(k, 0) or 0), 1000000)) for k in ("files", "photos", "videos", "voice", "text")}
+            old["limits"] = {k: max(-1, min(int((d["limits"] or {}).get(k, 0) or 0), 1000000)) for k in ("files", "photos", "videos", "voice", "text")}
             old["usage"] = {"counts": {k: 0 for k in ("files", "photos", "videos", "voice", "text")}, "warnings": 0}
         if "cooldown_hours" in d: old["cooldown_hours"] = max(0, min(float(d["cooldown_hours"] or 0), 8760))
         if "auto_delete_links" in d: old["auto_delete_links"] = bool(d["auto_delete_links"])

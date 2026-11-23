@@ -47,6 +47,7 @@ ACTIVE_CLIENTS = {}
 # Callback supplied by main.py for direct channel-post quota enforcement.
 CHANNEL_POST_CALLBACK = None
 _MONITORED_CLIENTS = set()
+_MY_IDS = {}
 
 
 def set_channel_post_callback(callback):
@@ -77,7 +78,12 @@ def _attach_channel_post_monitor(client):
             # channel's own negative ID). main.py then identifies the admin through
             # the post's author signature ("Sign messages"), so always forward it.
             sender_id = event.sender_id
-            await asyncio.to_thread(CHANNEL_POST_CALLBACK, channel_id, sender_id, event.message)
+            global _MY_IDS
+            my_id = _MY_IDS.get(id(client))
+            if my_id is None:
+                me = await client.get_me()
+                my_id = _MY_IDS[id(client)] = me.id
+            await asyncio.to_thread(CHANNEL_POST_CALLBACK, channel_id, sender_id, event.message, my_id, bool(event.out))
         except Exception as exc:
             logger.exception("Managed channel post observer failed: %s", exc)
 
@@ -326,3 +332,29 @@ async def restore_sessions():
             logger.info(f"Restored session: {phone}")
         except Exception as e:
             logger.error(f"Restore failed {phone}: {e}")
+
+
+async def enable_signatures(channel_id):
+    """Turn ON 'Sign Messages' for a channel using the logged-in userbot (must be owner / admin with Change Info)."""
+    from telethon.tl.functions.channels import ToggleSignaturesRequest
+    clients = [i["client"] for i in ACTIVE_CLIENTS.values() if i.get("logged_in") and i.get("client")]
+    if not clients:
+        return {"ok": False, "msg": "No Telethon userbot is logged in. Log in the channel OWNER account first."}
+    last = ""
+    for client in clients:
+        try:
+            try:
+                ent = await client.get_entity(int(channel_id))
+            except Exception:
+                await client.get_dialogs()
+                ent = await client.get_entity(int(channel_id))
+            try:
+                await client(ToggleSignaturesRequest(ent, signatures_enabled=True))
+            except TypeError:
+                await client(ToggleSignaturesRequest(ent, True))
+            return {"ok": True, "msg": "Sign Messages is now ON"}
+        except Exception as exc:
+            if "CHAT_NOT_MODIFIED" in str(exc).upper() or "NOT_MODIFIED" in str(exc).upper():
+                return {"ok": True, "msg": "Sign Messages was already ON"}
+            last = str(exc)
+    return {"ok": False, "msg": "Could not enable it: " + last}

@@ -103,3 +103,15 @@ work than the rest and I didn't want to rush them.
 - Limit exceeded or all enabled limits used -> post deleted, all managed rights removed for the cooldown, auto-restored, counters reset.
 - Channel Admin Manager shows an "Enforcement status" box and per-admin usage/suspension.
 - Bot needs "Delete messages" and "Add new admins" rights in the channel.
+
+## Update 2: works even without "Sign Messages" (single managed admin)
+- The bot now also identifies the admin by elimination when the Telethon userbot is logged in with the channel OWNER account: owner posts and the bot's own posts are ignored; the remaining post belongs to the one managed admin.
+- With several managed admins, turn ON Sign Messages (panel button "Turn ON Sign Messages automatically", needs the owner userbot).
+- Channel Admin Manager -> channel shows "Last posts seen" so you can see exactly what the bot decided for each post.
+
+## Update 3: clear limit rules + new limit UI
+- Per type: Block (0) / Limit N / Unlimited (-1).
+- Blocked type or over-limit post -> deleted at once, admin gets a warning DM. 3 warnings -> rights removed for the cooldown, restored automatically with the same permissions.
+- All allowed limits used -> rights removed for the cooldown, then counters restart from 0. Unlimited types never run out.
+- New animated Block/Limit/Unlimited cards, stepper and ripple effects in the panel.
+- Admins must press /start in the bot once to receive warning DMs.
