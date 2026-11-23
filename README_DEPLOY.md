@@ -70,3 +70,14 @@ work than the rest and I didn't want to rush them.
   a long block). Blocks are joined in order, so you can mix a plain line, a quoted feature
   list, and another quoted "setup" block in the same post, matching the layout from the
   reference video.
+
+## Channel Admin Manager (new)
+- New dashboard tile: **Channel Admin Manager**.
+- Search & Verify checks the channels already registered under Join / Channels and confirms where the bot is currently an administrator.
+- Open a channel to view its current administrators. Existing admins are shown, but only admins added and recorded through this manager can be edited or removed here.
+- Add New Admin accepts a Telegram numeric User ID, applies the selected Telegram administrator rights, and stores per-admin policy fields (files/photos/videos/voice/text counts, cooldown hours, and auto-delete-links preference).
+- The bot must have **Promote Members / Add New Admins** permission in the channel. Telegram may reject rights that exceed the bot's own rights.
+
+### Telegram API limitations to understand
+- Telegram Bot API cannot enumerate every channel where a bot is an administrator. This manager verifies channels already saved in this panel; add a channel under Join first.
+- Channel post updates do not reliably identify the human admin who published a post (anonymous admins and `sender_chat` are common). Therefore the stored per-admin quotas, cooldown and auto-delete-links preference are configuration records only; this release does **not** claim to automatically count or block each human admin's channel uploads or restore rights after a timer. Do not rely on those policy fields as enforcement until an attributable posting workflow is implemented.

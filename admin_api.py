@@ -584,6 +584,143 @@ def register(app, ctx):
             })
         return ok(items=out)
 
+    # ------------------------------------------------------------------
+    # Channel Admin Manager (admins created/managed by this bot)
+    # ------------------------------------------------------------------
+    ADMIN_RIGHTS = (
+        "can_post_messages", "can_edit_messages", "can_delete_messages",
+        "can_invite_users", "can_restrict_members", "can_pin_messages",
+        "can_promote_members", "can_change_info", "can_manage_video_chats"
+    )
+
+    def _managed_admins():
+        return G("bot_settings").setdefault("channel_managed_admins", {})
+
+    @route("/api/admin/channel-admin/channels")
+    def adm_channel_admin_channels():
+        """Verify every saved channel and return those where this bot is admin."""
+        out = []
+        try:
+            bot_id = bot.get_me().id
+        except Exception as ex:
+            return err("Cannot identify bot: " + str(ex), 503)
+        for ch in G("get_all_channels")():
+            chat_id = ch.get("chat_id")
+            if not chat_id:
+                continue
+            try:
+                member = bot.get_chat_member(chat_id, bot_id)
+                if member.status not in ("administrator", "creator"):
+                    continue
+                chat = bot.get_chat(chat_id)
+                out.append({"id": ch.get("id"), "chat_id": str(chat_id),
+                            "name": chat.title or ch.get("name") or str(chat_id),
+                            "username": getattr(chat, "username", None),
+                            "bot_can_promote": bool(getattr(member, "can_promote_members", False))})
+            except Exception:
+                continue
+        return ok(items=out, note="Only channels already saved in this panel can be checked. Telegram does not provide a bot API to enumerate every channel where the bot is admin.")
+
+    @route("/api/admin/channel-admin/<cid>/admins")
+    def adm_channel_managed_list(cid):
+        ch, e = _get_channel_or_404(cid)
+        if e: return e
+        try:
+            admins = bot.get_chat_administrators(ch["chat_id"])
+        except Exception as ex:
+            return err("Could not fetch channel admins: " + str(ex))
+        saved = _managed_admins().get(str(ch["chat_id"]), {})
+        items = []
+        for a in admins:
+            u = a.user
+            rec = saved.get(str(u.id))
+            items.append({"id": u.id, "name": ((u.first_name or "") + (" " + u.last_name if u.last_name else "")),
+                          "username": u.username, "status": a.status, "is_owner": a.status == "creator",
+                          "managed_by_bot": bool(rec), "policy": rec or None})
+        return ok(items=items)
+
+    @route("/api/admin/channel-admin/<cid>/admins", methods=["POST"])
+    def adm_channel_managed_add(cid):
+        ch, e = _get_channel_or_404(cid)
+        if e: return e
+        d = request.get_json(silent=True) or {}
+        try: uid = int(d.get("user_id"))
+        except Exception: return err("Enter a valid numeric Telegram User ID")
+        if uid <= 0: return err("Invalid Telegram User ID")
+        rights_in = d.get("permissions") or {}
+        rights = {k: bool(rights_in.get(k, False)) for k in ADMIN_RIGHTS}
+        # Telegram requires at least one administrator right.
+        if not any(rights.values()): return err("Select at least one administrator permission")
+        try:
+            bot_member = bot.get_chat_member(ch["chat_id"], bot.get_me().id)
+            if not getattr(bot_member, "can_promote_members", False):
+                return err("The bot needs 'Add New Admins / Promote Members' permission in this channel")
+            bot.promote_chat_member(ch["chat_id"], uid, **rights)
+        except Exception as ex:
+            return err("Telegram could not promote this user. Check bot rights and the User ID: " + str(ex))
+        policy = {
+            "permissions": rights,
+            "limits": {k: max(0, min(int((d.get("limits") or {}).get(k, 0) or 0), 1000000)) for k in ("files", "photos", "videos", "voice", "text")},
+            "cooldown_hours": max(0, min(float(d.get("cooldown_hours", 0) or 0), 8760)),
+            "auto_delete_links": bool(d.get("auto_delete_links", False)),
+            "created_at": now_iso(), "created_by": "admin_panel"
+        }
+        _managed_admins().setdefault(str(ch["chat_id"]), {})[str(uid)] = policy
+        sync()
+        try:
+            bot.send_message(uid, "✅ You have been added as a channel administrator. Your channel permissions and usage policy are set by the channel owner.")
+        except Exception:
+            pass
+        try:
+            bot.send_message(ADMIN_ID, f"✅ Channel admin added\nChannel: {ch.get('name', ch['chat_id'])}\nUser ID: {uid}")
+        except Exception:
+            pass
+        return ok(user_id=uid, policy=policy)
+
+    @route("/api/admin/channel-admin/<cid>/admins/<int:uid>", methods=["PATCH"])
+    def adm_channel_managed_edit(cid, uid):
+        ch, e = _get_channel_or_404(cid)
+        if e: return e
+        bucket = _managed_admins().get(str(ch["chat_id"]), {})
+        if str(uid) not in bucket: return err("This admin was not added/registered by this bot", 404)
+        d = request.get_json(silent=True) or {}
+        old = bucket[str(uid)]
+        if "permissions" in d:
+            rights_in = d.get("permissions") or {}
+            rights = {k: bool(rights_in.get(k, False)) for k in ADMIN_RIGHTS}
+            try:
+                bot.promote_chat_member(ch["chat_id"], uid, **rights)
+            except Exception as ex: return err("Could not update Telegram permissions: " + str(ex))
+            old["permissions"] = rights
+        if "limits" in d:
+            old["limits"] = {k: max(0, min(int((d["limits"] or {}).get(k, 0) or 0), 1000000)) for k in ("files", "photos", "videos", "voice", "text")}
+        if "cooldown_hours" in d: old["cooldown_hours"] = max(0, min(float(d["cooldown_hours"] or 0), 8760))
+        if "auto_delete_links" in d: old["auto_delete_links"] = bool(d["auto_delete_links"])
+        old["updated_at"] = now_iso(); sync()
+        return ok(policy=old)
+
+    @route("/api/admin/channel-admin/<cid>/admins/<int:uid>", methods=["DELETE"])
+    def adm_channel_managed_delete(cid, uid):
+        ch, e = _get_channel_or_404(cid)
+        if e: return e
+        bucket = _managed_admins().get(str(ch["chat_id"]), {})
+        if str(uid) not in bucket: return err("Only admins registered by this bot can be removed here", 404)
+        try:
+            bot.promote_chat_member(ch["chat_id"], uid,
+                can_change_info=False, can_post_messages=False, can_edit_messages=False,
+                can_delete_messages=False, can_invite_users=False, can_restrict_members=False,
+                can_pin_messages=False, can_promote_members=False, can_manage_video_chats=False)
+        except Exception as ex:
+            return err("Could not remove admin rights: " + str(ex))
+        bucket.pop(str(uid), None)
+        if not bucket: _managed_admins().pop(str(ch["chat_id"]), None)
+        sync()
+        try: bot.send_message(uid, "ℹ️ Your channel administrator permissions have been removed by the channel owner.")
+        except Exception: pass
+        try: bot.send_message(ADMIN_ID, f"🗑️ Managed channel admin removed\nChannel: {ch.get('name', ch['chat_id'])}\nUser ID: {uid}")
+        except Exception: pass
+        return ok()
+
     @route("/api/admin/channels/<cid>/invite_link", methods=["GET"])
     def adm_channel_invite_get(cid):
         ch, e = _get_channel_or_404(cid)
