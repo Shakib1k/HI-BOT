@@ -434,6 +434,34 @@ def register(app, ctx):
     # ------------------------------------------------------------------
     # channel groups (named presets of channels, for quick bulk-selection)
     # ------------------------------------------------------------------
+    @route("/api/admin/saved-channels/verify", methods=["POST"])
+    def adm_saved_channels_verify():
+        """Refresh every saved chat's Telegram title and bot-admin status."""
+        out = []
+        for ch in G("get_all_channels")():
+            chat_id = ch.get("chat_id")
+            if not chat_id:
+                out.append({"id": ch.get("id"), "name": ch.get("name"), "chat_id": "", "status": "missing chat ID"})
+                continue
+            try:
+                chat = bot.get_chat(chat_id)
+                title = getattr(chat, "title", None) or getattr(chat, "first_name", None) or ch.get("name") or str(chat_id)
+                G("update_channel")(ch.get("id"), name=title, real_title=title)
+                try:
+                    me = bot.get_me().id
+                    member = bot.get_chat_member(chat_id, me)
+                    status = "bot is admin" if member.status in ("administrator", "creator") else "bot is not admin"
+                except Exception:
+                    status = "cannot verify bot rights"
+                out.append({"id": ch.get("id"), "name": title, "chat_id": str(chat_id),
+                            "username": getattr(chat, "username", None), "status": status,
+                            "type": getattr(chat, "type", None)})
+            except Exception as ex:
+                out.append({"id": ch.get("id"), "name": ch.get("name"), "chat_id": str(chat_id),
+                            "status": "cannot access: " + str(ex)[:180]})
+        sync()
+        return ok(items=out, verified=len([x for x in out if not x["status"].startswith("cannot")]))
+
     @route("/api/admin/channels/resolve", methods=["POST"])
     def adm_channel_resolve():
         """Looks up a channel's real title/description/photo from Telegram, so Add New Channel
@@ -1116,6 +1144,11 @@ def register(app, ctx):
             chat_id = "@" + chat_id
         if typ == "public" and not join_url and chat_id.startswith("@"):
             join_url = "https://t.me/" + chat_id[1:]
+        # Prevent duplicate entries in the shared saved-channel registry.
+        existing = next((c for c in G("get_all_channels")()
+                         if str(c.get("chat_id", "")).strip().lower() == chat_id.lower()), None)
+        if existing:
+            return err("This channel is already saved as: " + str(existing.get("name") or existing.get("chat_id")), 409)
         # verify the bot can see the chat (needed for membership checks), and pull its real title
         warn = None
         real_title = ""
