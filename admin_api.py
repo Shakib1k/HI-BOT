@@ -22,12 +22,13 @@ import threading
 import mimetypes
 from datetime import datetime, timedelta, timezone
 
-from flask import jsonify, request, send_from_directory
+from flask import jsonify, request, send_from_directory, send_file
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 TOKEN_FILE = os.path.join(HERE, "admin_web_tokens.json")
 TOKEN_TTL = 60 * 60 * 24 * 30          # 30 days
 MAX_UPLOAD = 50 * 1024 * 1024          # Telegram bot API limit for uploads
+MAX_BACKUP = 200 * 1024 * 1024
 
 
 def register(app, ctx):
@@ -38,7 +39,7 @@ def register(app, ctx):
     logger = ctx["logger"]
     lock = threading.RLock()
 
-    app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD + 1024 * 1024
+    app.config["MAX_CONTENT_LENGTH"] = MAX_BACKUP + 1024 * 1024
 
     # ------------------------------------------------------------------
     # helpers
@@ -1720,6 +1721,118 @@ def register(app, ctx):
             ctx["db"] = db
             sync()
         return ok()
+
+    # ------------------------------------------------------------------
+    # Full backup / restore (admin-token protected)
+    # ------------------------------------------------------------------
+    @route("/api/admin/backup/export")
+    def adm_backup_export():
+        """Export the complete JSON bot database and optional userbot sessions."""
+        try:
+            sync()
+            db_path = G("DB_FILE")
+            if not os.path.isfile(db_path):
+                return err("Bot database file was not found", 404)
+            manifest = {
+                "format": "telegram-bot-admin-backup",
+                "version": 1,
+                "created_at": now_iso(),
+                "contains_userbot_sessions": os.path.isfile("userbot_sessions.json"),
+                "warning": "This archive may contain private user data and login sessions. Store it securely. Render environment variables are not included."
+            }
+            buf = io.BytesIO()
+            import zipfile
+            with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+                zf.write(db_path, "bot_database.json")
+                zf.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2))
+                if os.path.isfile("userbot_sessions.json"):
+                    zf.write("userbot_sessions.json", "userbot_sessions.json")
+            buf.seek(0)
+            stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            return send_file(buf, mimetype="application/zip", as_attachment=True,
+                             download_name=f"telegram_bot_backup_{stamp}.zip", max_age=0)
+        except Exception as ex:
+            logger.exception("Backup export failed")
+            return err("Backup export failed: " + str(ex), 500)
+
+    @route("/api/admin/backup/import", methods=["POST"])
+    def adm_backup_import():
+        """Validate and restore a backup. Current state is saved before replacement."""
+        up = request.files.get("file")
+        if not up or not up.filename:
+            return err("Choose a backup ZIP file")
+        raw = up.read(MAX_BACKUP + 1)
+        if len(raw) > MAX_BACKUP:
+            return err("Backup file is too large", 413)
+        import zipfile
+        try:
+            with zipfile.ZipFile(io.BytesIO(raw), "r") as zf:
+                names = set(zf.namelist())
+                if "bot_database.json" not in names:
+                    return err("Invalid backup: bot_database.json is missing")
+                if any(n.startswith("/") or ".." in n.split("/") for n in names):
+                    return err("Invalid backup archive paths")
+                restored = json.loads(zf.read("bot_database.json").decode("utf-8"))
+                restored_sessions = zf.read("userbot_sessions.json") if "userbot_sessions.json" in names else None
+        except Exception as ex:
+            return err("Cannot read backup ZIP: " + str(ex))
+        if not isinstance(restored, dict) or not isinstance(restored.get("bot_settings"), dict):
+            return err("Invalid backup database structure")
+        for key in ("file_database", "bot_settings", "user_activity", "giveaway", "referrals"):
+            if key in restored and not isinstance(restored[key], dict):
+                return err("Invalid backup data type: " + key)
+        for key in ("registered_users", "banned_users", "scheduled_messages", "scheduled_posts", "scheduled_deletions"):
+            if key in restored and not isinstance(restored[key], list):
+                return err("Invalid backup data type: " + key)
+        try:
+            with lock:
+                # Persist current in-memory state, then retain a timestamped safety copy.
+                sync()
+                db_path = G("DB_FILE")
+                if os.path.isfile(db_path):
+                    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    import shutil
+                    shutil.copy2(db_path, db_path + ".pre_import_" + stamp)
+                defaults = G("get_default_db")()
+                for k, v in defaults.items():
+                    restored.setdefault(k, v)
+                for k, v in defaults["bot_settings"].items():
+                    restored["bot_settings"].setdefault(k, v)
+                ctx["db"] = restored
+                ctx["file_database"] = restored.get("file_database", {})
+                ctx["registered_users"] = set(restored.get("registered_users", []))
+                ctx["banned_users"] = set(restored.get("banned_users", []))
+                ctx["user_activity"] = restored.get("user_activity", {})
+                ctx["bot_settings"] = restored["bot_settings"]
+                ctx["scheduled_messages"] = restored.get("scheduled_messages", [])
+                ctx["scheduled_posts"] = restored.get("scheduled_posts", [])
+                ctx["scheduled_deletions"] = restored.get("scheduled_deletions", [])
+                ctx["giveaway"] = restored.get("giveaway", defaults["giveaway"])
+                ctx["referrals"] = restored.get("referrals", {})
+                ctx["signup_log"] = restored.get("signup_log", {})
+                sync()
+                if restored_sessions is not None:
+                    # Parse before writing so malformed session JSON cannot be restored.
+                    parsed_sessions = json.loads(restored_sessions.decode("utf-8"))
+                    if not isinstance(parsed_sessions, dict):
+                        return err("Invalid userbot session data")
+                    if os.path.isfile("userbot_sessions.json"):
+                        import shutil
+                        shutil.copy2("userbot_sessions.json", "userbot_sessions.json.pre_import_" + stamp)
+                    tmp = "userbot_sessions.json.restore_tmp"
+                    with open(tmp, "wb") as f:
+                        f.write(restored_sessions)
+                    os.replace(tmp, "userbot_sessions.json")
+                elif os.path.isfile("userbot_sessions.json"):
+                    import shutil
+                    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    shutil.copy2("userbot_sessions.json", "userbot_sessions.json.pre_import_" + stamp)
+                    os.remove("userbot_sessions.json")
+            return ok(message="Backup restored successfully. Existing database safety copy was created.",
+                      restored_userbot_sessions=restored_sessions is not None)
+        except Exception as ex:
+            logger.exception("Backup import failed")
+            return err("Backup restore failed: " + str(ex), 500)
 
     # ------------------------------------------------------------------
     # logs
