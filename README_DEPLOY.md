@@ -115,3 +115,13 @@ work than the rest and I didn't want to rush them.
 - All allowed limits used -> rights removed for the cooldown, then counters restart from 0. Unlimited types never run out.
 - New animated Block/Limit/Unlimited cards, stepper and ripple effects in the panel.
 - Admins must press /start in the bot once to receive warning DMs.
+
+## Update 4 (backend)
+- Fix: suspended admins now get their rights back (restore retries, verifies, falls back to fewer rights, notifies owner).
+- vault.py: database copy pinned in the owner's bot chat, restored automatically after a restart (Render free disk is wiped). Open the bot and press /start once as owner.
+- Keep-alive self-ping (needs RENDER_EXTERNAL_URL, set automatically by Render).
+- Lag fixes: debounced DB writes, 16 bot worker threads, parallel membership check, cached get_me.
+- File link: loading animation starts instantly.
+- Reactions: one bot at a time, 1 second apart (setting: reaction_gap).
+- New API: join-request auto-approve, group guard, silent target purge, warning limit / warning time per admin, scoped Clear All Data.
+- NOTE: panel screens (admin.html) for the new modules are not built yet in this zip.

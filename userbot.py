@@ -358,3 +358,49 @@ async def enable_signatures(channel_id):
                 return {"ok": True, "msg": "Sign Messages was already ON"}
             last = str(exc)
     return {"ok": False, "msg": "Could not enable it: " + last}
+
+
+
+def _first_client():
+    for i in ACTIVE_CLIENTS.values():
+        if i.get("logged_in") and i.get("client"):
+            return i["client"]
+    return None
+
+
+async def _entity(client, chat_id):
+    try:
+        return await client.get_entity(int(chat_id))
+    except Exception:
+        await client.get_dialogs()
+        return await client.get_entity(int(chat_id))
+
+
+async def join_pending_count(chat_id):
+    """How many join requests are waiting in a private channel / group (needs the logged-in userbot)."""
+    client = _first_client()
+    if not client:
+        return {"ok": False, "msg": "No Telethon userbot is logged in. Log in an account that is admin of this chat."}
+    try:
+        from telethon.tl.functions.messages import GetChatInviteImportersRequest
+        from telethon.tl.types import InputUserEmpty
+        ent = await _entity(client, chat_id)
+        r = await client(GetChatInviteImportersRequest(peer=ent, requested=True, offset_date=0,
+                                                      offset_user=InputUserEmpty(), limit=1))
+        return {"ok": True, "count": int(getattr(r, "count", 0) or 0)}
+    except Exception as exc:
+        return {"ok": False, "msg": "Could not read pending requests: " + str(exc)[:160]}
+
+
+async def approve_all_pending(chat_id):
+    """Approve every join request that is already waiting (the bot only sees NEW requests)."""
+    client = _first_client()
+    if not client:
+        return {"ok": False, "msg": "No Telethon userbot is logged in. Log in an account that is admin of this chat."}
+    try:
+        from telethon.tl.functions.messages import HideAllChatJoinRequestsRequest
+        ent = await _entity(client, chat_id)
+        await client(HideAllChatJoinRequestsRequest(peer=ent, approved=True))
+        return {"ok": True, "msg": "Every waiting join request was approved."}
+    except Exception as exc:
+        return {"ok": False, "msg": "Could not approve: " + str(exc)[:160]}
