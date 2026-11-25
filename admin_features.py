@@ -39,6 +39,8 @@ def register(h):
         photo_cache[fid] = uri
         return uri
 
+    ctx["photo_data"] = photo_data
+
     def chat_info(ref, fresh=False):
         ref = str(ref).strip()
         c = info_cache.get(ref)

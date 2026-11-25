@@ -125,3 +125,26 @@ work than the rest and I didn't want to rush them.
 - Reactions: one bot at a time, 1 second apart (setting: reaction_gap).
 - New API: join-request auto-approve, group guard, silent target purge, warning limit / warning time per admin, scoped Clear All Data.
 - NOTE: panel screens (admin.html) for the new modules are not built yet in this zip.
+
+## v4 FULL UPDATE (everything below is in the panel – no Telegram needed)
+- **Channel Hub** (📡): all channels with logo, live members, growth, bot rights, folders (create/edit/delete),
+  total members. Tap a channel → **admin manager**: usage bars, warning dots, live suspension countdown,
+  Suspend / Restore / Reset / Remove, bulk Restore-all / Reset-all, activity log, enforcement status.
+- **Time pickers** (slider + preset chips + custom hours) for suspension time and warning suspension time,
+  plus "warnings before suspension". After the time ends the bot restores the SAME permissions automatically.
+- **Target Blocker** (🎯): enter a user ID -> everything that user posts in your channels is deleted silently.
+- **Join Requests** (🚪): View / Add New (verify card with name, logo, description) / Delete; auto-accept, delay, welcome, approve-all (needs userbot).
+- **Group Connect** (🛡️): Add New Group / View / Delete / Edit (Description, Name, Photo, lock) + protection
+  (links, stickers, GIFs, forwards, scam, CAS, flood, new-member limits, banned words, punishments, welcome, /tr translate).
+- **Reaction Bots**: one bot at a time, gap adjustable (⚡ Speed tab, default 1 s).
+- **Danger Zone**: choose exactly what to clear, type CLEAR; a safety copy is saved first.
+- **Backup**: new Auto-vault card.
+- **Speed**: 16 worker threads, debounced DB writes, parallel membership checks, no heavy blur, cached stats, skeleton loaders.
+- **Bot**: animated file-delivery loader (toggle on dashboard), /help, /profile, /stats.
+
+### Important on Render FREE plan
+The disk is erased on restart and the service sleeps after ~15 min without traffic. v4 therefore:
+1. pings itself every ~10 min (`RENDER_EXTERNAL_URL` is set by Render automatically),
+2. stores the database as a pinned file in the OWNER's private chat with the bot (press /start once) and restores it at boot,
+3. flushes on shutdown (SIGTERM).
+Requirements: bot needs *Delete messages* + *Add new admins* in each channel; turn ON *Sign Messages*; managed admins must press /start in the bot once.
